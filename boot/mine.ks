@@ -1,27 +1,31 @@
 wait until ship:unpacked.
-// if ship:status = "prelaunch" {
-//   shutdown.
-// }
+if ship:status = "prelaunch" and kuniverse:origineditor = "vab" {
+  shutdown.
+}
 core:doevent("open terminal").
 
-if hastarget {
-  dock().
+if ship:status = "prelaunch" {
+  if hastarget {
+    dock().
+  }
+  else {
+    // for testing, wait until undocked
+    if ship:parts:length < 30 {
+      mine().
+    }
+    else {
+      brakes on.
+    }
+  }
 }
 else {
-  // for testing, wait until undocked
-  if ship:parts:length < 30 {
+  if ship:status = "landed" {
     mine().
   }
   else {
-    brakes on.
+    dock().
   }
 }
-// if ship:status = "landed" {
-//   mine().
-// }
-// else {
-//   dock().
-// }
 shutdown.
 
 function mine {
@@ -74,43 +78,47 @@ function dock {
 
   local miner_id is core:element:uid.
   local port is core:element:dockingports[0].
-  local fuels is list("liquidFuel", "oxidizer", "monopropellant").
-  local ores is list("ore").
+  local inbound is list("station", "miner").
+  local outbound is list("miner", "station").
+  local directions is lexicon(
+    "ore",            outbound,
+    "liquidFuel",     inbound,
+    "oxidizer",       inbound,
+    "monopropellant", inbound
+  ).
+
+  // create basic structure: lex(section => lex(res:name => parts))
+  // where section is either "miner" or "station"
+  local plex is lexicon().
+  for section in inbound {
+    set plex[section] to lexicon().
+    for resource in directions:keys {
+      set plex[section][resource] to list().
+    }
+  }
 
   print "Waiting for docking...".
   wait until port:state:startswith("docked").
 
-  // create list of parts where element:uid <> core:element:uid
-  local miner_parts is lexicon().
-  local res_parts is lexicon().
+  // fill in all of the actual parts - since the structure has already been
+  // initialized, the parts can just be added to the lists
   for element in ship:elements {
     for resource in element:resources {
-      local res_name is resource:name.
-      if element:uid = miner_id {
-        set miner_parts[res_name] to resource:parts.
-      }
-      else {
-        if not res_parts:haskey(res_name) {
-          set res_parts[res_name] to list().
-        }
+      local section is choose "miner" if element:uid = miner_id else "station".
+      if plex[section]:haskey(resource:name) {
         for part in resource:parts {
-          res_parts[res_name]:add(part).
+          plex[section][resource:name]:add(part).
         }
       }
     }
   }
 
-  print "Transferring...".
+  print "Starting transfers...".
   local tx is lexicon().
-  for res in ores {
-    if res_parts:haskey(res) {
-      set tx[res] to make_transfer(res, miner_parts[res], res_parts[res]).
-    }
-  }
-  for res in fuels {
-    if res_parts:haskey(res) {
-      set tx[res] to make_transfer(res, res_parts[res], miner_parts[res]).
-    }
+  for res in directions:keys {
+    local source is directions[res][0].
+    local dest is directions[res][1].
+    set tx[res] to make_transfer(res, plex[source][res], plex[dest][res]).
   }
 
   for res in tx:keys {
@@ -124,8 +132,8 @@ function dock {
 
 function make_transfer {
   parameter res_name, source, dest.
+  // if either source or dest is empty, the transfer fails gracefully
   local xfr is transferall(res_name, source, dest).
-  print xfr.
   xfr:active on.
   return xfr.
 }
