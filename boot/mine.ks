@@ -2,28 +2,20 @@ wait until ship:unpacked.
 if ship:status = "prelaunch" and kuniverse:origineditor = "vab" {
   shutdown.
 }
-core:doevent("open terminal").
+// core:doevent("open terminal").
 
 if ship:status = "prelaunch" {
-  if hastarget {
-    dock().
+  // for testing, wait until undocked
+  if ship:parts:length < 30 {
+    mine().
   }
   else {
-    // for testing, wait until undocked
-    if ship:parts:length < 30 {
-      mine().
-    }
-    else {
-      brakes on.
-    }
+    brakes on.
   }
 }
 else {
   if ship:status = "landed" {
     mine().
-  }
-  else {
-    dock().
   }
 }
 shutdown.
@@ -69,71 +61,4 @@ function mine {
   drills off.
   deploydrills off.
   radiators off.
-}
-
-function dock {
-  if not hastarget {
-    return.
-  }
-
-  local miner_id is core:element:uid.
-  local port is core:element:dockingports[0].
-  local inbound is list("station", "miner").
-  local outbound is list("miner", "station").
-  local directions is lexicon(
-    "ore",            outbound,
-    "liquidFuel",     inbound,
-    "oxidizer",       inbound,
-    "monopropellant", inbound
-  ).
-
-  // create basic structure: lex(section => lex(res:name => parts))
-  // where section is either "miner" or "station"
-  local plex is lexicon().
-  for section in inbound {
-    set plex[section] to lexicon().
-    for resource in directions:keys {
-      set plex[section][resource] to list().
-    }
-  }
-
-  print "Waiting for docking...".
-  wait until port:state:startswith("docked").
-
-  // fill in all of the actual parts - since the structure has already been
-  // initialized, the parts can just be added to the lists
-  for element in ship:elements {
-    for resource in element:resources {
-      local section is choose "miner" if element:uid = miner_id else "station".
-      if plex[section]:haskey(resource:name) {
-        for part in resource:parts {
-          plex[section][resource:name]:add(part).
-        }
-      }
-    }
-  }
-
-  print "Starting transfers...".
-  local tx is lexicon().
-  for res in directions:keys {
-    local source is directions[res][0].
-    local dest is directions[res][1].
-    set tx[res] to make_transfer(res, plex[source][res], plex[dest][res]).
-  }
-
-  for res in tx:keys {
-    local xfr is tx[res].
-    print "Waiting for " + xfr + " - " + xfr:status.
-    wait until not xfr:active.
-    print res + " transfer " + xfr:status + " (" + xfr:message + ")".
-  }
-  print "All transfers complete".
-}
-
-function make_transfer {
-  parameter res_name, source, dest.
-  // if either source or dest is empty, the transfer fails gracefully
-  local xfr is transferall(res_name, source, dest).
-  xfr:active on.
-  return xfr.
 }
